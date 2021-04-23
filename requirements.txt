@@ -1,0 +1,5 @@
+streamlit
+pandas
+numpy
+torch==1.8.1+cpu
+filesplit
