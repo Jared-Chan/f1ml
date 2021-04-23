@@ -1,66 +1,113 @@
 import math
+import requests
 import streamlit as st
 import numpy as np
 import pandas as pd
 import torch, torch.nn as nn
 from fsplit.filesplit import Filesplit
+import os
+import SessionState
 
 fs = Filesplit()
 
 db_dir = './db/'
-fs.merge(input_dir="./db/models/model_split",output_file="./model_sd.pth", cleanup=False)
+if not os.path.exists('./model_sd.pth'):
+    fs.merge(input_dir="./db/models/model_split",output_file="./model_sd.pth", cleanup=False)
+if not os.path.exists('./model_sd_47.pth'):
+    fs.merge(input_dir="./db/models/model_split_47",output_file="./model_sd_47.pth", cleanup=False)
 
 def main():
 
+    session_state = SessionState.get(user_name='', model=0, record=[], circuitName='', circuitLoc='', year='', round='', graph=None)
+
     model = RacePredictionModel(4051, 1200, 1200, 2, 0.2)
-    model.load_state_dict(torch.load('./model_sd.pth'))
+    if (session_state.model == 0):
+        model.load_state_dict(torch.load('./model_sd.pth',map_location=torch.device('cpu')))
+    else:
+        model.load_state_dict(torch.load('./model_sd_47.pth',map_location=torch.device('cpu')))
     model.eval()
 
     years = range(2001, 2022)
     st.sidebar.title("Model Input")
-    year = st.sidebar.selectbox("Season", range)
-    round = st.sidebar.number_input("Round", min_value=1)
+    year = st.sidebar.selectbox("Season", years)
+    _round = st.sidebar.number_input("Round", min_value=1, step=1)
     if (year < 2021):
         qualifying = st.sidebar.checkbox("Qualifying")
         if (not qualifying):
-            laps = st.sidebar.number_input("Up to lap")
+            laps = st.sidebar.number_input("Use data up to lap", step=1, min_value=1)
         else:
             laps = 1
-    pred_laps = st.sidebar.number_input("Number of laps to predict", min_value=1, max_value=200)
+    else:
+        laps = 1
+    pred_laps = st.sidebar.number_input("Total number of laps", min_value=1, max_value=200, value=50, step=1)
     randomness = st.sidebar.slider("Randomness factor", min_value=0, max_value=50, value=0, step=1)
+    model_selection = st.sidebar.selectbox('Model selection', index=0,
+    options=['Regular','Optimized for Pit Stop Prediction'],
+    help='Regular: Trained with data from 2001 to 2020\n\n Optimized for Pit Stop Prediction: Trained with data from 2012 to 2020')
+    if (model_selection == 'Regular'):
+        session_state.model = 0
+    elif (model_selection == 'Optimized for Pit Stop Prediction'):
+        session_state.model = 1
     predict = st.sidebar.button("Predict")
 
     st.title('Formula One Race Lap-by-Lap Prediction')
-    st.text(f'Circuit:  {circuit_name}, {circuit_loc}, {circuit_country}')
-    laps_record = []
-    lap_num = st.slider("Lap", min_value=1, max_value=pred_laps, step=1, value=1)
+
+    pos_line_chart = {}
+    if (predict):
+        probar = st.progress(0)
+        laps_record = []
+        _input, exp = get_times(year, _round, laps)
+        probar.progress(0.1)
+        if (len(_input) == 0):
+            st.info('Sorry, there is no data for this race.')
+            return
+        states = model.zero_states()
+
+        _in = torch.from_numpy(_input[0])
+        if (len(exp) != 0):
+            for i in range(0, len(_input)):
+                _in = torch.from_numpy(_input[i])
+                _out = torch.from_numpy(exp[i])
+                circuit_name, circuit_loc, circuit_country, d, pos_line_chart = position_analysis(_in, _out, pred_laps, pos_line_chart)
+                laps_record.append(d)
+                out, states = model(_in.unsqueeze(0).unsqueeze(0).float(), states)
+        probar.progress(0.2)
+        for i in range(0, pred_laps):
+            if (not (len(exp) == 0 and i == 0)):
+                _in = out_to_in(_in, out.squeeze().squeeze(), True, pred_laps, randomness)
+            out, states = model(_in.unsqueeze(0).unsqueeze(0).float(), states)
+            out = out.squeeze().squeeze()
+            circuit_name, circuit_loc, circuit_country, d, pos_line_chart = position_analysis(_in, out, pred_laps, pos_line_chart)
+            laps_record.append(d)
+            probar.progress(0.2 + 0.8 * i/pred_laps)
+        session_state.record = laps_record
+        session_state.circuitName = circuit_name
+        session_state.circuitLoc = circuit_loc
+        session_state.year = year
+        session_state.round = _round
+        graph = pd.DataFrame.from_dict(pos_line_chart)
+        session_state.graph = graph
+        probar.progress(1.0)
+        probar.progress(0)
+
+    st.subheader(f'{session_state.year} Round {session_state.round}')
+    if (len(session_state.circuitName) > 0):
+        st.subheader(f'{session_state.circuitName}, {session_state.circuitLoc}')
+    lap_num = st.slider("Lap (Slide me to refresh)", min_value=1, max_value=pred_laps, step=1, value=1)
     if (lap_num <= laps):
-        st.text("Real")
+        st.text("From database")
     else:
         st.text("Prediction")
 
-    if (len(laps_record) > 0):
-        st.dataframe(laps_record[lap_num-1])
+    if (len(session_state.record) > 0):
+        if (lap_num >= len(session_state.record)):
+            st.table(session_state.record[-1])
+        else:
+            st.table(session_state.record[lap_num-1])
+        st.line_chart(session_state.graph)
 
-    if (predict):
-        with st.spinner('Loading...'):
-            input, exp = get_times(year, round, laps)
-            states = model.zero_states()
 
-            _in = torch.from_numpy(input[0])
-            if (exp != None):
-                for i in range(0, len(input)):
-                    _in = torch.from_numpy(input[i])
-                    _out = torch.from_numpy(exp[i])
-                    circuit_name, circuit_loc, circuit_country, d = pos_df(_in, _out, pred_laps)
-                    laps_record.append(d)
-                    out, states = model(_in.unqueuze(0).unqueuze(0).float(), states)
-            for i in range(0, pred_laps-len(input)):
-                _in = out_to_in(_in, out.squeeze().squeeze(), True, pred_laps, randomness).unsqueeze(0).unsqueeze(0).float()
-                out, states = model(_in.unqueuze(0).unqueuze(0).float(), states)
-                out = out.squeeze().squeeze()
-                circuit_name, circuit_loc, circuit_country, d = pos_df(_in, out, pred_laps)
-                laps_record.append(d)
+
 
 @st.cache
 def time_to_int(t):
@@ -85,8 +132,7 @@ status = pd.read_csv(db_dir + 'status.csv')
 
 @st.cache
 def race_info(raceId):
-  _races = races
-  _r = _races.query(f'raceId  == {raceId}')
+  _r = races.query(f'raceId  == {raceId}')
   if (_r.empty):
     return None, None, None
   _year = _r['year'].item()
@@ -96,8 +142,7 @@ def race_info(raceId):
 
 @st.cache
 def circuit_info(circuitId):
-  _circuits = circuits
-  _c = _circuits.query(f'circuitId  == {circuitId}')
+  _c = circuits.query(f'circuitId  == {circuitId}')
   if (_c.empty):
     return None, None, None
   _name = _c['name'].item()
@@ -107,8 +152,7 @@ def circuit_info(circuitId):
 
 @st.cache
 def driver_info(id):
-  _drivers = drivers
-  _d = _drivers.query(f'driverId  == {id}')
+  _d = drivers.query(f'driverId  == {id}')
   if (_d.empty):
     return None, None, None, None, None, None
   _number = _d['number'].item()
@@ -121,8 +165,7 @@ def driver_info(id):
 
 @st.cache
 def constructor_info(id):
-  _constructor = constructors
-  _c = _constructor.query(f'constructorId  == {id}')
+  _c = constructor.query(f'constructorId  == {id}')
   if (_c.empty):
     return None, None
   _name = _d['name'].item()
@@ -131,8 +174,7 @@ def constructor_info(id):
 
 @st.cache
 def status_info(id):
-  _status = status
-  _s = _status.query(f'statusId == {id}')
+  _s = status.query(f'statusId == {id}')
   if (_s.empty):
     return None
   _sstr = _s['status'].item()
@@ -241,11 +283,11 @@ def driver_embed(idx):
 def driver_unbed(d_array):
   return np.argmax(d_array) + 1
 
-@st.cache
-def get_times(year, round, lap):
+@st.cache(suppress_st_warning=True)
+def get_times(year, _round, lap):
   if (year <= 2020):
-    race = np.load(db_dir + f'/races_npy/{year}/{round-1}_in.npy')
-    race_out = np.load(db_dir + f'/races_npy/{year}/{round-1}_exp.npy')
+    race = np.load(db_dir + f'/races_npy/{year}/{_round-1}_in.npy')
+    race_out = np.load(db_dir + f'/races_npy/{year}/{_round-1}_exp.npy')
     if (lap >= len(race)):
         return race, race_out
     race = race[:lap]
@@ -254,10 +296,12 @@ def get_times(year, round, lap):
   else:
     c_s = {}
 
-    quali = requests.get(f'http://ergast.com/api/f1/{year}/{round}/qualifying.json')
+    quali = requests.get(f'http://ergast.com/api/f1/{year}/{_round}/qualifying.json')
     if (quali.status_code < 200):
-      return None
+      return [], []
     j = quali.json()
+    if (len(j['MRData']['RaceTable']['Races']) == 0):
+        return [], []
     circuitRef = j['MRData']['RaceTable']['Races'][0]['Circuit']['circuitId']
     circuitId = circuits.query(f'circuitRef == \'{circuitRef}\'')['circuitId'].item()
 
@@ -265,22 +309,30 @@ def get_times(year, round, lap):
     ret[circuitId] = 1
     ret = np.append(ret, np.zeros(1)) # lap number/ total number of laps
 
-    if (round - 1 < 1):
+    if (_round - 1 < 1):
       d_s = requests.get(f'http://ergast.com/api/f1/{year-1}/driverStandings.json')
       c_s = requests.get(f'http://ergast.com/api/f1/{year-1}/constructorStandings.json')
     else:
-      d_s = requests.get(f'http://ergast.com/api/f1/{year}/{round-1}/driverStandings.json')
-      c_s = requests.get(f'http://ergast.com/api/f1/{year}/{round-1}/constructorsStandings.json')
+      d_s = requests.get(f'http://ergast.com/api/f1/{year}/{_round-1}/driverStandings.json')
+      c_s = requests.get(f'http://ergast.com/api/f1/{year}/{_round-1}/constructorsStandings.json')
     if (d_s.status_code < 200):
       ds_ok = False
     else:
       ds_ok = True
-      d_s = d_s.json()
+      try:
+          d_s = d_s.json()
+      except:
+          st.error('Something went wrong while getting race information.')
+          return [], []
     if (c_s.status_code < 200):
       cs_ok = False
     else:
       cs_ok = True
-      c_s = c_s.json()
+      try:
+          c_s = c_s.json()
+      except:
+          st.error('Something went wrong while getting race information.')
+          return [], []
 
     for i in range(20):
       if (i < len(j['MRData']['RaceTable']['Races'][0]['QualifyingResults'])):
@@ -354,10 +406,10 @@ def get_times(year, round, lap):
         ret = np.append(ret, np.zeros(3920 - (20-i) * 196))
         break
 
-    return np.expand_dims(ret, 0), None
+    return np.expand_dims(ret, 0), []
 
-@st.cache
-def pos_df(lap_in, out, num_of_laps=1):
+@st.cache(allow_output_mutation=True)
+def position_analysis(lap_in, out, num_of_laps=1, line_chart={}):
   df = pd.DataFrame(columns=['code', 'driver', 'position', 'laps till pitting', 'status', 'laptime'])
   _lap = lap_in.detach().clone().numpy()
   _o = out.detach().clone().numpy()
@@ -366,6 +418,14 @@ def pos_df(lap_in, out, num_of_laps=1):
     _d_idx = driver_unbed_idx(driver_unbed(_lap[131 + i * 196 : 131 + i * 196 + 130]))
     _num, _code, _fn, _ln, _, _ = driver_info(_d_idx)
     _pos = np.argmax(_o[i*60 : i*60 + 21]) + 1
+    if (_code == '\\N'):
+        _tempcode = _ln[:3]
+    else:
+        _tempcode = _code
+    if (_tempcode in line_chart):
+        line_chart[_tempcode].append(21-_pos)
+    else:
+        line_chart[_tempcode] = [21-_pos]
     _pitting = _o[i*60+21] * num_of_laps
     if (_pitting == 0):
       _pitting = 'NA'
@@ -373,18 +433,23 @@ def pos_df(lap_in, out, num_of_laps=1):
     if (_pos == 21):
       _retired = True
     _status = stat_unbed(_o[i*60 + 22: i*60 + 28], _retired)
-    _time = lt_unbed(_o[i*60 + 28:])
+    if (_d_idx == 853):
+        _status = 'Spun off'
+    if (_retired):
+        _time = 'NA'
+    else:
+        _time = lt_unbed(_o[i*60 + 28:])
     df = df.append({
         'code': f'{_code}',
         'driver': f'{_fn} {_ln}',
-        'position': _pos,
+        'position': int(_pos),
         'laps till pitting': _pitting,
         'status': _status,
         'laptime': _time
     }, ignore_index=True)
 
   df = df.sort_values(by=['position', 'laptime'], ascending=[True, False])
-  return _name, _loc, _country, df
+  return _name, _loc, _country, df, line_chart
 
 # Returns a tensor with the size of in but content of out
 @st.cache
