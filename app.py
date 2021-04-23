@@ -53,6 +53,7 @@ def main():
     st.title('Formula One Race Lap-by-Lap Prediction')
 
     pos_line_chart = {}
+    probar = st.empty()
     if (predict):
         probar = st.progress(0)
         laps_record = []
@@ -88,11 +89,12 @@ def main():
         graph = pd.DataFrame.from_dict(pos_line_chart)
         session_state.graph = graph
         probar.progress(1.0)
-        probar.progress(0)
+        probar = st.empty()
 
     st.subheader(f'{session_state.year} Round {session_state.round}')
     if (len(session_state.circuitName) > 0):
         st.subheader(f'{session_state.circuitName}, {session_state.circuitLoc}')
+    st.line_chart(session_state.graph)
     lap_num = st.slider("Lap (Slide me to refresh)", min_value=1, max_value=pred_laps, step=1, value=1)
     if (lap_num <= laps):
         st.text("From database")
@@ -104,7 +106,6 @@ def main():
             st.table(session_state.record[-1])
         else:
             st.table(session_state.record[lap_num-1])
-        st.line_chart(session_state.graph)
 
 
 
