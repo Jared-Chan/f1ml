@@ -1,5 +1,6 @@
 import math
 import requests
+import json
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -9,6 +10,8 @@ import os
 import SessionState
 
 fs = Filesplit()
+
+st.set_page_config(page_title='F1 Laps with ML', page_icon=None, layout='centered', initial_sidebar_state='auto')
 
 db_dir = './db/'
 if not os.path.exists('./model_sd.pth'):
@@ -29,7 +32,7 @@ def main():
 
     years = range(2001, 2022)
     st.sidebar.title("Model Input")
-    year = st.sidebar.selectbox("Season", years)
+    year = st.sidebar.selectbox("Season", years, index=20)
     _round = st.sidebar.number_input("Round", min_value=1, step=1)
     if (year < 2021):
         qualifying = st.sidebar.checkbox("Qualifying")
@@ -39,8 +42,8 @@ def main():
             laps = 1
     else:
         laps = 1
-    pred_laps = st.sidebar.number_input("Total number of laps", min_value=1, max_value=200, value=50, step=1)
-    randomness = st.sidebar.slider("Randomness factor", min_value=0, max_value=50, value=0, step=1)
+    pred_laps = st.sidebar.number_input("Total number of laps", min_value=1, max_value=200, value=50, step=1, help='The model will predict up to this many laps.')
+    randomness = st.sidebar.slider("Randomness factor", min_value=0, max_value=100, value=0, step=1)
     model_selection = st.sidebar.selectbox('Model selection', index=0,
     options=['Regular','Optimized for Pit Stop Prediction'],
     help='Regular: Trained with data from 2001 to 2020\n\n Optimized for Pit Stop Prediction: Trained with data from 2012 to 2020')
@@ -49,11 +52,13 @@ def main():
     elif (model_selection == 'Optimized for Pit Stop Prediction'):
         session_state.model = 1
     predict = st.sidebar.button("Predict")
+    st.sidebar.markdown('Learn more about this web app [here](https://github.com/Jared-Chan/f1ml).')
 
-    st.title('Formula One Race Lap-by-Lap Prediction')
+    st.title('Formula One Race Lap-by-Lap Prediction with Machine Learning')
+    st.markdown('***')
 
-    pos_line_chart = {}
     probar = st.empty()
+    pos_line_chart = {}
     if (predict):
         probar = st.progress(0)
         laps_record = []
@@ -80,7 +85,7 @@ def main():
             out = out.squeeze().squeeze()
             circuit_name, circuit_loc, circuit_country, d, pos_line_chart = position_analysis(_in, out, pred_laps, pos_line_chart)
             laps_record.append(d)
-            probar.progress(0.2 + 0.8 * i/pred_laps)
+            probar.progress(0.2 + 0.8 * (i+1)/pred_laps)
         session_state.record = laps_record
         session_state.circuitName = circuit_name
         session_state.circuitLoc = circuit_loc
@@ -89,12 +94,16 @@ def main():
         graph = pd.DataFrame.from_dict(pos_line_chart)
         session_state.graph = graph
         probar.progress(1.0)
+        probar.progress(0)
         probar = st.empty()
 
-    st.subheader(f'{session_state.year} Round {session_state.round}')
+    if (session_state.year):
+        st.subheader(f'{session_state.year} Round {session_state.round}')
+    else:
+        st.subheader('Please configure model input from the sidebar.')
     if (len(session_state.circuitName) > 0):
         st.subheader(f'{session_state.circuitName}, {session_state.circuitLoc}')
-    lap_num = st.slider("Lap (Slide me to refresh)", min_value=1, max_value=pred_laps, step=1, value=1)
+    lap_num = st.slider("Lap Number", min_value=1, max_value=pred_laps, step=1, value=1)
     if (lap_num <= laps):
         st.text("From database")
     else:
@@ -105,7 +114,7 @@ def main():
             st.table(session_state.record[-1])
         else:
             st.table(session_state.record[lap_num-1])
-    st.line_chart(session_state.graph)
+        st.line_chart(session_state.graph)
 
 
 
@@ -295,12 +304,57 @@ def get_times(year, _round, lap):
     race_out = race_out[:lap]
     return race, race_out
   else:
-    c_s = {}
 
-    quali = requests.get(f'http://ergast.com/api/f1/{year}/{_round}/qualifying.json')
-    if (quali.status_code < 200):
-      return [], []
-    j = quali.json()
+    if not os.path.exists(db_dir + f'/cache/{year}_{_round}_q.json'):
+        quali = requests.get(f'http://ergast.com/api/f1/{year}/{_round}/qualifying.json')
+        if (quali.status_code < 200):
+          return [], []
+        j = quali.json()
+
+        if (_round - 1 < 1):
+          d_s = requests.get(f'http://ergast.com/api/f1/{year-1}/driverStandings.json')
+          c_s = requests.get(f'http://ergast.com/api/f1/{year-1}/constructorStandings.json')
+        else:
+          d_s = requests.get(f'http://ergast.com/api/f1/{year}/{_round-1}/driverStandings.json')
+          c_s = requests.get(f'http://ergast.com/api/f1/{year}/{_round-1}/constructorStandings.json')
+        if (d_s.status_code < 200):
+          ds_ok = False
+        else:
+          ds_ok = True
+          try:
+              d_s = d_s.json()
+          except:
+              st.error('Something went wrong while getting race information.')
+              return [], []
+        if (c_s.status_code < 200):
+          cs_ok = False
+        else:
+          cs_ok = True
+          try:
+              c_s = c_s.json()
+          except:
+              st.error(f'{c_s.text}')
+              st.error('Something went wrong while getting race information.')
+              return [], []
+
+        if (len(j['MRData']['RaceTable']['Races']) != 0):
+            with open(db_dir + f'cache/{year}_{_round}_q.json', 'w') as f:
+                json.dump(j, f)
+            with open(db_dir + f'cache/{year}_{_round}_ds.json', 'w') as f:
+                json.dump(d_s, f)
+            with open(db_dir + f'cache/{year}_{_round}_cs.json', 'w') as f:
+                json.dump(c_s, f)
+    else:
+        with open(db_dir + f'cache/{year}_{_round}_q.json', 'r') as f:
+            j = json.load(f)
+        with open(db_dir + f'cache/{year}_{_round}_ds.json', 'r') as f:
+            d_s = json.load(f)
+            ds_ok = True
+        with open(db_dir + f'cache/{year}_{_round}_cs.json', 'r') as f:
+            c_s = json.load(f)
+            cs_ok = True
+
+
     if (len(j['MRData']['RaceTable']['Races']) == 0):
         return [], []
     circuitRef = j['MRData']['RaceTable']['Races'][0]['Circuit']['circuitId']
@@ -309,31 +363,6 @@ def get_times(year, _round, lap):
     ret = np.zeros(130)
     ret[circuitId] = 1
     ret = np.append(ret, np.zeros(1)) # lap number/ total number of laps
-
-    if (_round - 1 < 1):
-      d_s = requests.get(f'http://ergast.com/api/f1/{year-1}/driverStandings.json')
-      c_s = requests.get(f'http://ergast.com/api/f1/{year-1}/constructorStandings.json')
-    else:
-      d_s = requests.get(f'http://ergast.com/api/f1/{year}/{_round-1}/driverStandings.json')
-      c_s = requests.get(f'http://ergast.com/api/f1/{year}/{_round-1}/constructorsStandings.json')
-    if (d_s.status_code < 200):
-      ds_ok = False
-    else:
-      ds_ok = True
-      try:
-          d_s = d_s.json()
-      except:
-          st.error('Something went wrong while getting race information.')
-          return [], []
-    if (c_s.status_code < 200):
-      cs_ok = False
-    else:
-      cs_ok = True
-      try:
-          c_s = c_s.json()
-      except:
-          st.error('Something went wrong while getting race information.')
-          return [], []
 
     for i in range(20):
       if (i < len(j['MRData']['RaceTable']['Races'][0]['QualifyingResults'])):
@@ -397,6 +426,8 @@ def get_times(year, _round, lap):
         else:
           t = 0.0
         t = time_to_int(t)
+        if (t == None):
+            t = 0
         laptime = lt_embed(float(t))
         ret = np.append(ret, laptime)
 
@@ -440,6 +471,7 @@ def position_analysis(lap_in, out, num_of_laps=1, line_chart={}):
         _time = 'NA'
     else:
         _time = lt_unbed(_o[i*60 + 28:])
+        _time = f'{_time:.1f}'
     df = df.append({
         'code': f'{_code}',
         'driver': f'{_fn} {_ln}',
