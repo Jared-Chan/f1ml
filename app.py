@@ -77,12 +77,14 @@ def main():
                 _out = torch.from_numpy(exp[i])
                 circuit_name, circuit_loc, circuit_country, d, pos_line_chart = position_analysis(_in, _out, pred_laps, pos_line_chart)
                 laps_record.append(d)
-                out, states = model(_in.unsqueeze(0).unsqueeze(0).float(), states)
+                with torch.no_grad():
+                    out, states = model(_in.unsqueeze(0).unsqueeze(0).float(), states)
         probar.progress(0.2)
         for i in range(0, pred_laps):
             if (not (len(exp) == 0 and i == 0)):
                 _in = out_to_in(_in, out.squeeze().squeeze(), True, pred_laps, randomness)
-            out, states = model(_in.unsqueeze(0).unsqueeze(0).float(), states)
+            with torch.no_grad():
+                out, states = model(_in.unsqueeze(0).unsqueeze(0).float(), states)
             out = out.squeeze().squeeze()
             circuit_name, circuit_loc, circuit_country, d, pos_line_chart = position_analysis(_in, out, pred_laps, pos_line_chart)
             laps_record.append(d)
