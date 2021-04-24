@@ -14,8 +14,8 @@ fs = Filesplit()
 st.set_page_config(page_title='F1 Laps with ML', page_icon=None, layout='centered', initial_sidebar_state='auto')
 
 db_dir = './db/'
-if not os.path.exists('./model_sd.pth'):
-    fs.merge(input_dir="./db/models/model_split",output_file="./model_sd.pth", cleanup=False)
+#if not os.path.exists('./model_sd.pth'):
+#    fs.merge(input_dir="./db/models/model_split",output_file="./model_sd.pth", cleanup=False)
 if not os.path.exists('./model_sd_47.pth'):
     fs.merge(input_dir="./db/models/model_split_47",output_file="./model_sd_47.pth", cleanup=False)
 
@@ -25,7 +25,8 @@ def main():
 
     model = RacePredictionModel(4051, 1200, 1200, 2, 0.2)
     if (session_state.model == 0):
-        model.load_state_dict(torch.load('./model_sd.pth',map_location=torch.device('cpu')))
+        #model.load_state_dict(torch.load('./model_sd.pth',map_location=torch.device('cpu')))
+        model.load_state_dict(torch.load('./model_sd_47.pth',map_location=torch.device('cpu')))
     else:
         model.load_state_dict(torch.load('./model_sd_47.pth',map_location=torch.device('cpu')))
     model.eval()
@@ -45,8 +46,8 @@ def main():
     pred_laps = st.sidebar.number_input("Total number of laps", min_value=1, max_value=200, value=50, step=1, help='The model will predict up to this many laps.')
     randomness = st.sidebar.slider("Randomness factor", min_value=0, max_value=100, value=0, step=1)
     model_selection = st.sidebar.selectbox('Model selection', index=0,
-    options=['Regular','Optimized for Pit Stop Prediction'],
-    help='Regular: Trained with data from 2001 to 2020\n\n Optimized for Pit Stop Prediction: Trained with data from 2012 to 2020')
+    options=['Regular','Optimized for Pit Stop Prediction (Not available)'],
+    help='Regular: Trained with data from 2001 to 2020\n\n Optimized for Pit Stop Prediction: Trained with data from 2012 to 2020 (Not available due to size limitations.)')
     if (model_selection == 'Regular'):
         session_state.model = 0
     elif (model_selection == 'Optimized for Pit Stop Prediction'):

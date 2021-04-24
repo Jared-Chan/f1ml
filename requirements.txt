@@ -1,4 +1,3 @@
-os
 requests
 streamlit
 pandas==1.2.3
