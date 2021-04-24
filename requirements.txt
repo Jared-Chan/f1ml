@@ -1,7 +1,7 @@
 requests
 streamlit
-pandas
-numpy
+pandas==1.2.3
+numpy==1.20.1
 --find-links https://download.pytorch.org/whl/torch_stable.html
 torch==1.8.1+cpu
-filesplit
+filesplit==3.0.2
