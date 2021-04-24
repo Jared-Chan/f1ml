@@ -21,6 +21,6 @@ Some predictions made by the models:
 - With a lot of added randomness, the model gives very eventful races.  
 ![chaotic](./images/graph-reallychaotic.png)
 
-More on the making of the models [here](./notebooks/README.md).
+## More on the making of the models [here](./notebooks/README.md).
 
-This website uses [SessionState](https://gist.github.com/tvst/036da038ab3e999a64497f42de966a92) by [tvst](https://gist.github.com/tvst).
+## This website uses [SessionState](https://gist.github.com/tvst/036da038ab3e999a64497f42de966a92) by [tvst](https://gist.github.com/tvst).
