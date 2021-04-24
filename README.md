@@ -1,6 +1,6 @@
 # Formula One Race Lap-by-Lap Prediction with Machine Learning
 
-![webpage](./images/2021_sakhir.png)
+[![webpage](./images/2021_sakhir.png)](https://f1laps.herokuapp.com/)
 
 This website features two machine learning models that can predict lap times, positions, pit stop strategies as well as events like collisions for up to 20 drivers throughout a whole race.
 
