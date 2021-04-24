@@ -22,3 +22,5 @@ Some predictions made by the models:
 [chaotic](./images/graph-reallychaotic.png)
 
 More on the making of the models [here](./notebooks/README.md).
+
+This website uses [SessionState](https://gist.github.com/tvst/036da038ab3e999a64497f42de966a92) by [tvst](https://gist.github.com/tvst).
