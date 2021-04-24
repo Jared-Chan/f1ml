@@ -23,6 +23,7 @@ Finally, I added an extra bit that is always zero when training. This is the 'ra
 I also wanted to include other kinds of information, such as weather status, tire types, and safety car laps, but I could not find much information and I wanted to try training a model with what I had.
 
 At the end this is what the input and output of the model look like: (with their respective sizes)
+
 Input (4051):
 - circuit ID (130)
 - Lap number / total number of laps (1)
